@@ -1,0 +1,19 @@
+# ================= 敏感信息 =================
+.env
+.env.*
+*.key
+
+# ================= 运行时产物 =================
+state_db/
+search_cache.json
+known_terms.json
+global_context_result.json
+global_context_test_output.txt
+danmaku_review_results.csv
+*.log
+*.png
+
+# ================= Python =================
+__pycache__/
+*.pyc
+*.pyo

@@ -1,0 +1,8 @@
+{
+  "video_title": "遮天 第181集",
+  "video_summary": "叶凡雪园斩杀紫天凤，清算坠鹰崖旧怨，赴宴破杀阵震慑群雄。蛮族驰援退敌，叶凡与姬紫月重逢，以圣血神药救下李黑水。",
+  "xml_file_path": "test.xml",
+  "test_limit": 20000,
+  "output_txt": "global_context_test_output.txt",
+  "output_json": "global_context_result.json"
+}
