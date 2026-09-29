@@ -3,9 +3,23 @@ import csv
 import time
 import xml.etree.ElementTree as ET
 from danmaku_filter import DanmakuFilter
+import os
+# ============ 项目路径统一管理 ============
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
 
+# 所有数据文件的绝对路径
+CONTEXT_JSON = os.path.join(DATA_DIR, "global_context_result.json")
+KNOWN_TERMS  = os.path.join(DATA_DIR, "known_terms.json")
+SEARCH_CACHE = os.path.join(DATA_DIR, "search_cache.json")
+XML_PATH     = os.path.join(BASE_DIR, "test.xml")
+OUTPUT_DIR   = os.path.join(BASE_DIR, "output")
 
-def load_global_context(path="global_context_result.json"):
+# 确保运行时目录存在（从任意 CWD 运行都不会失败）
+os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+def load_global_context(path=CONTEXT_JSON):
     """读取全局预热 agent 生成的上下文"""
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -25,9 +39,8 @@ def parse_danmaku_xml(xml_path):
 
 def main():
     # ============ 配置 ============
-    XML_FILE = "test.xml"
-    CONTEXT_JSON = "global_context_result.json"
-    OUTPUT_CSV = "danmaku_review_results.csv"
+    XML_FILE = XML_PATH                      # 绝对路径：<项目根>/test.xml
+    OUTPUT_CSV = os.path.join(OUTPUT_DIR, "danmaku_review_results.csv")
     TEST_LIMIT = 200        # 先跑 200 条，看效果再放开
 
     # ============ 1. 加载全局上下文 ============

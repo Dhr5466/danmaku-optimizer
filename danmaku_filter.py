@@ -20,6 +20,14 @@ from edgejev import Agent
 
 load_dotenv()
 
+# ============ 项目路径统一管理（基于脚本所在目录，避免依赖 CWD）============
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(BASE_DIR, "output")
+GRAPH1_PATH = os.path.join(OUTPUT_DIR, "1graph.png")
+# 本地 INT8 模型目录：随项目目录定位（不随 CWD 变化）
+DEFAULT_MODEL_PATH = os.path.join(BASE_DIR, "jev-int8")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
 
 # =========================================================
 # 1. 状态与数据结构定义
@@ -67,7 +75,7 @@ class ModerationResult(BaseModel):
 # 2. 核心审核类封装
 # =========================================================
 class DanmakuFilter:
-    def __init__(self, model_path: str = "../jev-int8", light_model_max_chars: int = 512):
+    def __init__(self, model_path: str = DEFAULT_MODEL_PATH, light_model_max_chars: int = 512):
         self.model_path = model_path
         self.light_model_max_chars = light_model_max_chars
         self._setup_db()
@@ -124,15 +132,6 @@ gray：即使结合提供的上下文，仍然无法可靠判断。
     def _context_build_node(self, state: ModerationState):
         """
         职责：把外部传入的全局上下文和当前弹幕拼接成两份 Prompt。
-        为什么要分两份？
-        - 详细版（full_context）→ 给 DeepSeek 大模型，包含 800-1000 字的全局背景，
-          让大模型能理解剧情、黑话和玩梗，做出精准判定。
-        - 精简版（light_context）→ 给 edgejev 轻量模型，只保留"视频标题 + 核心语境 + 弹幕"，
-          因为小模型 max_len=1024，上下文过长反而稀释它的注意力、降低判断准确率。
-          小模型只负责"表面特征判断"（脏话、广告等），复杂的语义推理交给大模型。
-
-        关键：这个节点不做任何工具调用或搜索，避免拖慢单条审核速度。
-        所有搜索工作已经在离线预热阶段（GlobalContextBuilder）完成。
         """
         text = state["preprocessed_text"]
         video_title = state.get("video_title") or "无"
@@ -289,7 +288,7 @@ gray：即使结合提供的上下文，仍然无法可靠判断。
 
         try:
             png_data = self.graph.get_graph().draw_mermaid_png()
-            with open("1graph.png", "wb") as f:
+            with open(GRAPH1_PATH, "wb") as f:
                 f.write(png_data)
         except Exception:
             pass

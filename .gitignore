@@ -1,19 +1,72 @@
-# ================= 敏感信息 =================
+# ============================================================
+#  .gitignore —— danmaku-optimizer
+#  原则：只提交「源代码 + 配置模板 + 测试输入」，
+#        不提交「密钥 / 本地模型 / 运行时产物 / IDE 配置」
+# ============================================================
+
+# ---------------- 敏感信息（绝不提交）----------------
 .env
 .env.*
+!.env.example
 *.key
+*.pem
 
-# ================= 运行时产物 =================
+# ---------------- 运行时产物 ----------------
+output/
 state_db/
-search_cache.json
-known_terms.json
-global_context_result.json
-global_context_test_output.txt
-danmaku_review_results.csv
 *.log
 *.png
 
-# ================= Python =================
+# 人工词典 / 全局上下文 / 搜索缓存：属于可再生成的运行时数据，
+# 且体积小但含业务数据，默认不提交。
+# 若希望换机 clone 后 test.py 开箱可跑，把下面两行注释掉即可。
+data/known_terms.json
+data/search_cache.json
+# 注意：data/global_context_result.json 在下方「数据文件」段统一忽略
+
+# ---------------- 本地大模型（300MB+，不进 Git）----------------
+# 由 `edgejev build` 生成，换机需重新生成或用外部路径引用
+jev-int8/
+*.onnx
+
+# ---------------- 数据文件 ----------------
+# test.xml（弹幕输入）是要提交的，见文件末尾白名单
+data/global_context_result.json
+data/global_context_test_output.txt
+danmaku_review_results.csv
+*.csv
+
+# ---------------- Python ----------------
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
+*.egg-info/
+.venv/
+venv/
+env/
+build/
+dist/
+
+# ---------------- IDE / 编辑器 ----------------
+.idea/
+.vscode/
+*.iml
+
+# ---------------- 操作系统 ----------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------------- 快照 / 临时文件夹 ----------------
+backup/
+*.bak
+*.tmp
+
+# ============================================================
+#  白名单：以下文件即使被上面的规则命中，也必须提交
+# ============================================================
+!.env.example
+!requirements.txt
+!test.xml
+!config.json
+!data/test.xml

@@ -11,6 +11,18 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 load_dotenv()
 
+# ============ 项目路径统一管理（基于脚本所在目录，避免依赖 CWD）============
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+OUTPUT_DIR = os.path.join(BASE_DIR, "output")
+
+KNOWN_TERMS_PATH = os.path.join(DATA_DIR, "known_terms.json")
+SEARCH_CACHE_PATH = os.path.join(DATA_DIR, "search_cache.json")
+GRAPH2_PATH = os.path.join(OUTPUT_DIR, "2graph.png")
+
+os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
 
 
 # 定义全局上下文构建的状态
@@ -106,6 +118,8 @@ class GlobalContextBuilder:
         【视频标题】{state.get('video_title', '')}
         【视频简介】{state.get('video_summary', '')}
         【弹幕节选（已去重）】{state.get('all_danmaku_text', '')[:3000]}...
+
+        请以 JSON 格式输出，字段为 summary 和 unknown_terms。
         """
         try:
             # 直接调用结构化模型，返回的已经是 Pydantic 对象了，无需 json.loads
@@ -138,15 +152,15 @@ class GlobalContextBuilder:
 
         # ================== 1. 加载人工词典 ==================
         known_terms = {}
-        if os.path.exists("known_terms.json"):
+        if os.path.exists(KNOWN_TERMS_PATH):
             try:
-                with open("known_terms.json", "r", encoding="utf-8") as f:
+                with open(KNOWN_TERMS_PATH, "r", encoding="utf-8") as f:
                     known_terms = json.load(f)
             except Exception as e:
                 print(f"       ⚠️ known_terms.json 读取失败: {e}")
 
         # ================== 2. 加载搜索缓存 ==================
-        cache_file = "search_cache.json"
+        cache_file = SEARCH_CACHE_PATH
         cache = {}
         if os.path.exists(cache_file):
             try:
@@ -232,6 +246,8 @@ class GlobalContextBuilder:
         - 如果搜索结果解释的是"该动漫的剧情/人物"，而不是"弹幕黑话的含义"，则判为不准确。
         - 如果结果明显错误（如把"黑皇"搜成了"别的动漫角色"），也判为不准确。
         - 如果结果不准确，请给出一个更精准的搜索词。
+
+        请以 JSON 格式返回，包含 evaluations 数组。
         """
             try:
                 response = self.eval_llm.invoke([HumanMessage(content=prompt)])
@@ -252,15 +268,15 @@ class GlobalContextBuilder:
                 # ============ 1. 评估通过的词写入人工词典 ============
                 if accurate:
                     known = {}
-                    if os.path.exists("known_terms.json"):
+                    if os.path.exists(KNOWN_TERMS_PATH):
                         try:
-                            with open("known_terms.json", "r", encoding="utf-8") as f:
+                            with open(KNOWN_TERMS_PATH, "r", encoding="utf-8") as f:
                                 known = json.load(f)
                         except Exception:
                             known = {}
                     known.update(accurate)
                     try:
-                        with open("known_terms.json", "w", encoding="utf-8") as f:
+                        with open(KNOWN_TERMS_PATH, "w", encoding="utf-8") as f:
                             json.dump(known, f, ensure_ascii=False, indent=2)
                         print(f"       📚 已自动将 {len(accurate)} 个词写入人工词典")
                     except Exception as e:
@@ -309,16 +325,16 @@ class GlobalContextBuilder:
 
         # 【新增】把重搜后的结果同步进缓存
         cache = {}
-        if os.path.exists("search_cache.json"):
+        if os.path.exists(SEARCH_CACHE_PATH):
             try:
-                with open("search_cache.json", "r", encoding="utf-8") as f:
+                with open(SEARCH_CACHE_PATH, "r", encoding="utf-8") as f:
                     cache = json.load(f)
             except Exception:
                 cache = {}
         for term in failed_terms:
             cache[term] = search_results[term]
         try:
-            with open("search_cache.json", "w", encoding="utf-8") as f:
+            with open(SEARCH_CACHE_PATH, "w", encoding="utf-8") as f:
                 json.dump(cache, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"       ⚠️ 写入缓存失败: {e}")
@@ -359,6 +375,8 @@ class GlobalContextBuilder:
            - 用一句话概括剧情。
            - 只用列出最重要的 2-3 个黑话及其一句话释义。
            - 一句话总结整体氛围。
+
+        请以 JSON 格式返回，包含 full_context 和 short_context 两个字段。
         """
         try:
             response = self.context_llm.invoke([HumanMessage(content=prompt)])
@@ -428,7 +446,7 @@ class GlobalContextBuilder:
         self.graph = builder.compile()
         try:
             png_data = self.graph.get_graph().draw_mermaid_png()
-            with open("2graph.png", "wb") as f:
+            with open(GRAPH2_PATH, "wb") as f:
                 f.write(png_data)
         except Exception:
             pass
