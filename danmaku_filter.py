@@ -26,6 +26,10 @@ OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 GRAPH1_PATH = os.path.join(OUTPUT_DIR, "1graph.png")
 # 本地 INT8 模型目录：随项目目录定位（不随 CWD 变化）
 DEFAULT_MODEL_PATH = os.path.join(BASE_DIR, "jev-int8")
+# 本地模型“过滤”决策的置信度门槛。
+# 实测该模型在相关性维度区分能力很弱（见 EXPERIMENT.md），故设极高门槛，
+# 使其只在高置信时才本地过滤，其余一律升级云端复核。
+IRRELEVANT_LOCAL_MIN_CONF = 0.99
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
@@ -59,8 +63,8 @@ class ModerationState(TypedDict, total=False):
     # ==================== 最终结果 ====================
     final_label: str | None              # 最终审核标签：safe / violation / gray
     route: str | None                    # 路由路径，用于统计与调试
-                                         # 可能值：light_model_pass / light_model_block /
-                                         #         llm_review / llm_final / human_review
+                                         # 可能值：light_model_pass / light_model_irrelevant /
+                                         #         light_model_block / llm_review / llm_final / human_review
 
     # ==================== 性能统计 ====================
     light_latency_ms: float              # 轻量模型初筛耗时（毫秒）
@@ -68,7 +72,7 @@ class ModerationState(TypedDict, total=False):
 
 
 class ModerationResult(BaseModel):
-    label: Literal["safe", "violation", "gray"]
+    label: Literal["safe", "violation", "irrelevant", "gray"]
 
 
 # =========================================================
@@ -110,17 +114,26 @@ class DanmakuFilter:
 
 
         self.sys_msg = SystemMessage(content="""
-你是一个互联网内容安全审核模型。你需要审核用户发送的弹幕。
-分类只有三个：safe、violation、gray
+你是一个互联网弹幕质量审核模型。你需要审核用户发送的弹幕，判断它是否值得保留。
+分类只有四个：safe、irrelevant、violation、gray
 其中：
-safe：正常、安全内容。
-violation：存在明确的攻击、辱骂、色情、暴力等违规风险。
+safe：弹幕内容与【本集剧情 / 角色 / 动画本体】直接相关，有实际信息量。
+      例如：讨论剧情走向、评价角色、指出动画改动、补充原著设定、吐槽作画与配音、表达对具体情节的反应。
+irrelevant：弹幕与本集剧情无关，属于无信息量的噪音，应当被过滤。
+      例如：地域报到（"XX前来报到""XX第一"）、抢楼打卡（"第一""打卡""来了"）、
+      与剧情无关的个人话题、刷屏口号、跨作品无关刷屏、与剧情无关的许愿/接好运。
+violation：弹幕存在明确违规风险，应当被拦截与处置。
+      例如：对角色或观众的性化骚扰与低俗玩笑、人身攻击与辱骂、色情内容、
+      涉及现实政治人物或民族宗教的不当言论、广告与导流。
 gray：即使结合提供的上下文，仍然无法可靠判断。
 
-视频标题和视频简介只能作为辅助语境，不能因为视频本身属于搞笑、犯罪、影视等题材，就降低对用户弹幕本身的审核标准。
-请只返回：safe 或者 violation 或者 gray，不要输出其他解释。
+判断尺度：
+- 优先判断"是否与本集剧情/动画相关"。与剧情无关但无害的，归为 irrelevant，不要归为 safe。
+- 观众对更新速度、时长、作画、配音的吐槽，属于对动画本体的评价，归为 safe。
+- 情绪强烈的短句（如"好帅""可惜了"），若能明显对应本集剧情节点，归为 safe；完全无法定位的归为 gray。
+- 视频标题和视频简介只能作为辅助语境，不能因为视频本身属于搞笑、犯罪、影视等题材，就降低对用户弹幕本身的审核标准。
 请严格按照 JSON 格式返回，且只包含一个字段：
-{"label": "safe" | "violation" | "gray"}
+{"label": "safe" | "irrelevant" | "violation" | "gray"}
 """)
 
     # -------- 节点函数 --------
@@ -165,11 +178,15 @@ gray：即使结合提供的上下文，仍然无法可靠判断。
             {
                 "category": {
                     "type": "choice",
-                    "instructions": "请对这段互联网弹幕进行内容安全分类",
+                    "instructions": (
+                        "判断这条弹幕是否与本集剧情/动画本体相关，以及是否违规。"
+                        "与剧情无关但无害的噪音属于 irrelevant。"
+                    ),
                     "criteria": {
-                        "safe": "正常、安全的内容，没有明显攻击、辱骂、色情、暴力等风险",
-                        "violation": "存在明确违规、攻击、辱骂、色情、暴力等风险",
-                        "gray": "语义存在歧义，仅凭当前文本无法可靠判断，需要进一步结合上下文"
+                        "safe": "与本集剧情、角色或动画本体（作画、配音、节奏、更新）相关，有信息量",
+                        "irrelevant": "与剧情无关的噪音：地域报到、抢第一、打卡、与剧情无关的个人话题、跨作品无关刷屏",
+                        "violation": "违规风险：对角色或观众的性化骚扰、人身攻击辱骂、色情、现实政治或民族宗教不当言论、广告",
+                        "gray": "信息过少或无法定位，仅凭当前文本无法可靠判断"
                     }
                 }
             }
@@ -190,6 +207,10 @@ gray：即使结合提供的上下文，仍然无法可靠判断。
     def _block_node(self, state: ModerationState):
         return {"final_label": "violation", "route": "light_model_block"}
 
+    def _irrelevant_node(self, state: ModerationState):
+        """与剧情无关的噪音 → 过滤（不隐藏为违规，仅不展示）"""
+        return {"final_label": "irrelevant", "route": "light_model_irrelevant"}
+
     def _llm_review_node(self, state: ModerationState):
         start_time = time.perf_counter()
         # 【修改】使用构建好的上下文
@@ -209,8 +230,8 @@ gray：即使结合提供的上下文，仍然无法可靠判断。
 
         latency = (time.perf_counter() - start_time) * 1000
 
-        # 【修改】判定为 safe 或 violation 时，直接在这里设置 final_label
-        final_label = label if label in {"safe", "violation"} else None
+        # 【修改】判定为 safe / violation / irrelevant 时，直接在这里设置 final_label
+        final_label = label if label in {"safe", "violation", "irrelevant"} else None
 
         return {
             "llm_label": label,
@@ -234,19 +255,31 @@ gray：即使结合提供的上下文，仍然无法可靠判断。
 
     # -------- 路由函数 --------
     def _route_after_light(self, state: ModerationState):
+        """路由规则（基于实测诊断结论，见 .agent-workspace/EXPERIMENT.md）
+
+        实测发现：本地 INT8 模型在“是否与剧情相关”这一维度上几乎不具备区分能力——
+        184 条剧情相关弹幕中它把 164 条误判为 irrelevant，且置信度普遍偏低。
+        因此过滤决策不能信任本地模型，设计为：
+        - safe  ≥ 0.50：直接保留（该分支实测召回高）
+        - violation ≥ 0.80：直接拦截
+        - irrelevant：无论置信度高低几乎一律升级云端复核（需 ≥ 0.99 才本地过滤），
+          本地模型仅充当高召回的粗筛，精度交由 DeepSeek 保证
+        """
         label = state.get("light_label")
         confidence = state.get("light_confidence") or 0.0
 
         if label == "safe" and confidence >= 0.50:
             return "pass_node"
-        elif label == "violation" and confidence >= 0.8:
+        elif label == "irrelevant" and confidence >= IRRELEVANT_LOCAL_MIN_CONF:
+            return "irrelevant_node"
+        elif label == "violation" and confidence >= 0.80:
             return "block_node"
         return "llm_review_node"
 
     # 【修改】删除了 llm_final_node 后的路由逻辑
     def _route_after_llm(self, state: ModerationState):
         # 大模型如果给出了确定答案，直接去 END；否则去人工
-        if state.get("llm_label") in {"safe", "violation"}:
+        if state.get("llm_label") in {"safe", "violation", "irrelevant"}:
             return END
         return "human_review_node"
 
@@ -260,6 +293,7 @@ gray：即使结合提供的上下文，仍然无法可靠判断。
         builder.add_node("light_review_node", self._light_review_node)
         builder.add_node("pass_node", self._pass_node)
         builder.add_node("block_node", self._block_node)
+        builder.add_node("irrelevant_node", self._irrelevant_node)
         builder.add_node("llm_review_node", self._llm_review_node)
         # builder.add_node("llm_final_node", self._llm_final_node)  # 【删除】
         builder.add_node("human_review_node", self._human_review_node)
@@ -272,7 +306,12 @@ gray：即使结合提供的上下文，仍然无法可靠判断。
         builder.add_conditional_edges(
             "light_review_node",
             self._route_after_light,
-            {"pass_node": "pass_node", "block_node": "block_node", "llm_review_node": "llm_review_node"}
+            {
+                "pass_node": "pass_node",
+                "block_node": "block_node",
+                "irrelevant_node": "irrelevant_node",
+                "llm_review_node": "llm_review_node",
+            }
         )
         builder.add_conditional_edges(
             "llm_review_node",
@@ -282,6 +321,7 @@ gray：即使结合提供的上下文，仍然无法可靠判断。
 
         builder.add_edge("pass_node", END)
         builder.add_edge("block_node", END)
+        builder.add_edge("irrelevant_node", END)
         builder.add_edge("human_review_node", END)
 
         self.graph = builder.compile(checkpointer=self.memory)

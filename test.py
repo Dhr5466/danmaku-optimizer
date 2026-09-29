@@ -94,6 +94,7 @@ def main():
         route_display = {
             "light_model_pass": "Lite直过",
             "light_model_block": "Lite拦截",
+            "light_model_irrelevant": "Lite过滤",
             "llm_review": "LLM复核",
             "llm_final": "LLM终审",
             "human_review": "人工"
@@ -107,7 +108,7 @@ def main():
             "耗时ms": round(latency, 1)
         })
 
-        status = "✅" if pred_label == "safe" else ("🚫" if pred_label == "violation" else "❓")
+        status = "✅" if pred_label == "safe" else ("🚫" if pred_label == "violation" else ("🗑️" if pred_label == "irrelevant" else "❓"))
         print(f"[{i:03d}] {status} {pred_label:<9} | {route_display:<8} | {latency:>5.0f}ms | {text[:40]}")
 
     total_time = time.time() - start_all
